@@ -1,36 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { mapLeads } from '@/lib/services/columnMapper';
+import { processQueue, getProcessingProgress, pauseProcessing, resumeProcessing, stopProcessing } from '@/lib/services/queueManager';
 import { leadStore } from '@/lib/store/leadStore';
-import {
-  processQueue,
-  getProcessingProgress,
-  pauseProcessing,
-  resumeProcessing,
-  stopProcessing,
-} from '@/lib/services/queueManager';
+import { ColumnMapping } from '@/lib/types';
 
-export async function POST() {
+let isRunning = false;
+
+export async function POST(request: NextRequest) {
   try {
-    const progress = getProcessingProgress();
+    const body = await request.json();
+    const { sessionId, columnMapping } = body as { sessionId: string; columnMapping: ColumnMapping };
 
-    if (progress.state === 'running') {
-      return NextResponse.json(
-        { status: 'already_running', progress },
-        { status: 409 }
-      );
+    if (!sessionId) {
+      return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
     }
 
-    // Start processing asynchronously -- do not await
-    processQueue().catch((error) => {
-      console.error('Queue processing error:', error);
-    });
+    const session = leadStore.getSession(sessionId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
 
-    return NextResponse.json({ status: 'started' });
+    // Map raw data to leads
+    const leads = mapLeads(session.rawData, columnMapping);
+    leadStore.addLeads(sessionId, leads);
+
+    const stats = leadStore.getQueueStats();
+
+    // Start processing asynchronously
+    if (!isRunning) {
+      isRunning = true;
+      processQueue().finally(() => {
+        isRunning = false;
+      });
+    }
+
+    return NextResponse.json({
+      leadsCreated: leads.length,
+      queueA: stats.queueA,
+      queueB: stats.queueB,
+      stats,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : 'Failed to start processing';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -40,21 +52,13 @@ export async function GET() {
     const stats = leadStore.getQueueStats();
 
     return NextResponse.json({
-      isProcessing: progress.state === 'running',
-      state: progress.state,
-      progress: {
-        processed: progress.processed,
-        total: progress.total,
-        currentLead: progress.currentLead,
-      },
+      isProcessing: isRunning,
+      progress,
       stats,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : 'Failed to get status';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -63,37 +67,24 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const { action } = body as { action: string };
 
-    if (!action) {
-      return NextResponse.json(
-        { error: 'action is required. Must be one of: pause, resume, stop' },
-        { status: 400 }
-      );
-    }
-
     switch (action) {
       case 'pause':
         pauseProcessing();
-        return NextResponse.json({ status: 'paused' });
-
+        break;
       case 'resume':
         resumeProcessing();
-        return NextResponse.json({ status: 'resumed' });
-
+        break;
       case 'stop':
         stopProcessing();
-        return NextResponse.json({ status: 'stopped' });
-
+        isRunning = false;
+        break;
       default:
-        return NextResponse.json(
-          { error: `Unknown action: ${action}. Must be one of: pause, resume, stop` },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
+
+    return NextResponse.json({ status: action });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : 'Failed to control processing';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

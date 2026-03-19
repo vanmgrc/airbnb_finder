@@ -1,0 +1,16 @@
+lead_id,owner_name,rental_address,rental_city,rental_state,rental_zip,competitor_listing_url,existing_airbnb_url,notes
+LEAD-001,John Smith,123 Ocean View Dr,Destin,FL,32541,https://www.vrbo.com/12345,,Beachfront condo
+LEAD-002,Sarah Johnson,456 Mountain Lodge Way,Gatlinburg,TN,37738,https://www.booking.com/hotel/us/mountain-retreat,,3BR cabin near ski resort
+LEAD-003,Mike Davis,789 Palm Beach Blvd,Miami Beach,FL,33139,,,Luxury condo with pool
+LEAD-004,Emily Chen,321 Lake Shore Dr,Lake Tahoe,CA,96150,https://www.vrbo.com/67890,,Lakefront property
+LEAD-005,Robert Wilson,654 Vineyard Ln,Napa,CA,94558,,,Wine country cottage
+LEAD-006,Lisa Anderson,987 Ski Run Blvd,Park City,UT,84060,https://www.booking.com/hotel/us/ski-lodge,,Ski-in/ski-out condo
+LEAD-007,David Brown,147 Boardwalk Ave,Gulf Shores,AL,36542,,,Beach house
+LEAD-008,Jennifer Taylor,258 Canyon View Rd,Sedona,AZ,86336,https://www.vrbo.com/11111,,Red rock views
+LEAD-009,Chris Martinez,369 Sunset Strip,Malibu,CA,90265,,,Oceanfront home
+LEAD-010,Amanda White,741 Historic Main St,Savannah,GA,31401,https://www.booking.com/hotel/us/historic-inn,,Downtown historic district
+LEAD-011,Tom Garcia,852 River Walk,San Antonio,TX,78205,,,Near riverwalk
+LEAD-012,Nicole Lee,963 Beach Rd,Hilton Head,SC,29928,https://www.vrbo.com/22222,,Golf course community
+LEAD-013,Kevin Moore,159 Evergreen Ct,Aspen,CO,81611,,,Luxury ski chalet
+LEAD-014,Rachel Clark,267 Harbor View Dr,Charleston,SC,29401,https://www.booking.com/hotel/us/harbor-house,,Waterfront home
+LEAD-015,Brian Harris,378 Desert Rose Ln,Scottsdale,AZ,85251,,,Near Old Town

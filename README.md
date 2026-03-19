@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Airbnb Link Finder
 
-## Getting Started
+A desktop-first web application for finding Airbnb listing URLs for property leads. Upload a CSV/XLSX of leads, and the system processes them through a modular pipeline to find matching Airbnb listings with confidence scoring and manual review support.
 
-First, run the development server:
+## Quick Start
 
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How It Works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Upload** a CSV or XLSX file with property leads
+2. **Map columns** to required fields (address, competitor URL, etc.)
+3. **Process** leads through the matching pipeline:
+   - **Queue A** (leads with competitor URL) processed first
+   - **Queue B** (address-only leads) processed second
+4. **Review** results in the review table with confidence scores
+5. **Export** approved results to CSV or XLSX
 
-## Learn More
+## Sample Data
 
-To learn more about Next.js, take a look at the following resources:
+A sample CSV is included at `public/sample-leads.csv` for testing.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Architecture
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Services (`src/lib/services/`)
 
-## Deploy on Vercel
+| Service | Purpose |
+|---|---|
+| `fileParser` | Parses CSV/XLSX files |
+| `columnMapper` | Auto-detects and maps file columns to lead fields |
+| `queueManager` | Orchestrates lead processing (Queue A first, then B) |
+| `competitorScraper` | Validates and scrapes competitor listing URLs |
+| `searchService` | Builds search queries and executes searches |
+| `airbnbCandidateFinder` | Finds and extracts Airbnb listing candidates |
+| `matchingEngine` | Scores candidates against lead data (weighted matching) |
+| `confidenceScorer` | Calculates confidence scores and labels |
+| `exportService` | Exports results to CSV/XLSX |
+| `reviewWorkflow` | Handles approve/reject/override review actions |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Providers (`src/lib/providers/`)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Pluggable provider interfaces for external services:
+
+| Provider | Current | Future Options |
+|---|---|---|
+| Search | `MockSearchProvider` | Google Custom Search API |
+| Scraper | `MockScraperProvider` | Basic fetch+HTML, Browser automation (Puppeteer) |
+| Image Search | `MockImageSearchProvider` | Google Lens via SerpAPI |
+| Vision | `MockVisionProvider` | Claude Vision API, GPT-4V |
+
+### Where to Plug In
+
+- **Search provider**: `src/lib/providers/searchProvider.ts` — implement `SearchProvider` interface
+- **Scraper provider**: `src/lib/providers/scraperProvider.ts` — implement `ScraperProvider` interface
+- **Reverse image search**: `src/lib/providers/imageSearchProvider.ts` — implement `ImageSearchProvider` interface
+- **Vision/image similarity**: `src/lib/providers/visionProvider.ts` — implement `VisionProvider` interface
+- **Database**: Replace `src/lib/store/leadStore.ts` with a database-backed store
+
+### Matching Engine Weights
+
+| Factor | Weight |
+|---|---|
+| Address similarity | 30 |
+| Title similarity | 20 |
+| Description similarity | 15 |
+| Bedroom count match | 15 |
+| Bathroom count match | 10 |
+| Amenity overlap | 10 |
+
+## Tech Stack
+
+- Next.js 15 (App Router)
+- TypeScript
+- Tailwind CSS v4
+- PapaParse (CSV parsing)
+- SheetJS/xlsx (Excel parsing)
+- Fuse.js (fuzzy search)
+- string-similarity (text comparison)
+
+## Project Structure
+
+```
+src/
+  app/                    # Pages and API routes
+    api/                  # REST API endpoints
+      upload/             # File upload
+      process/            # Processing control
+      leads/              # Lead CRUD + review actions
+      export/             # Export to CSV/XLSX
+      stats/              # Queue statistics
+    dashboard/            # Processing dashboard
+    review/               # Lead review table
+    lead/[id]/            # Lead detail view
+    export/               # Export page
+  components/             # React components
+    layout/               # Sidebar, Header
+    upload/               # FileUploader, DataPreview, ColumnMapper
+    dashboard/            # QueueStats, ProcessingControls
+    review/               # ReviewTable, FilterBar, ComparisonPanel
+    lead/                 # LeadDetail, CandidateList, ManualOverride
+    shared/               # ConfidenceBadge, StatusBadge, ExternalLink
+  lib/
+    types/                # TypeScript type definitions
+    services/             # Business logic services
+    providers/            # Pluggable external service providers
+    utils/                # Text similarity, address normalization, URL validation
+    store/                # In-memory lead store
+```
