@@ -1,8 +1,8 @@
 import { Lead, ConfidenceLabel, MethodUsed, ProcessingStatus } from '../types';
 import { leadStore } from '../store/leadStore';
 import { scrapeCompetitorUrl } from './competitorScraper';
+import { findAirbnbByImages } from './imageMatcher';
 import {
-  buildSearchQueryFromCompetitor,
   buildSearchQueryFromAddress,
   searchForAirbnbListings,
   broadSearchForAirbnb,
@@ -144,13 +144,13 @@ export async function processQueue(
 /**
  * Process a single lead through the full pipeline.
  *
- * Queue A (has competitor URL):
- *   1. Scrape competitor URL for property data
- *   2. Search for matching Airbnb listings
- *   3. Evaluate candidates with matching engine
- *   4. Calculate confidence score
+ * Queue A (has competitor URL) — IMAGE-BASED MATCHING:
+ *   1. Scrape competitor URL to extract property images
+ *   2. Reverse image search each image via Google Lens
+ *   3. Filter results for Airbnb URLs
+ *   4. Exact image match = high confidence, visual match = medium
  *
- * Queue B (no competitor URL):
+ * Queue B (no competitor URL) — ADDRESS-BASED SEARCH:
  *   1. Search for Airbnb listings by address
  *   2. Evaluate candidates with matching engine
  *   3. Calculate confidence score
@@ -173,16 +173,20 @@ export async function processLead(lead: Lead): Promise<Lead> {
 }
 
 /**
- * Process a Queue A lead (has competitor URL).
+ * Process a Queue A lead using IMAGE-BASED matching.
+ *
+ * This replicates the manual workflow:
+ *   1. Open competitor URL → scrape property images
+ *   2. For each image → reverse image search (Google Lens)
+ *   3. Look at exact matches for airbnb.com URLs
+ *   4. If found → copy URL. If not → no match.
  */
 async function processQueueALead(lead: Lead): Promise<Lead> {
-  let method: MethodUsed = 'competitor-based';
-
-  // Step 1: Scrape competitor URL
+  // Step 1: Scrape competitor URL to get images
   const scrapeResult = await scrapeCompetitorUrl(lead.competitor_listing_url);
 
   if (scrapeResult.success && scrapeResult.data) {
-    // Update lead with competitor data
+    // Update lead with scraped data
     leadStore.updateLead(lead.id, {
       competitor_status: 'valid',
       extracted_competitor_title: scrapeResult.data.title,
@@ -190,67 +194,78 @@ async function processQueueALead(lead: Lead): Promise<Lead> {
       extracted_competitor_data: scrapeResult.data,
     });
 
-    // Step 2: Search using competitor data
-    const query = buildSearchQueryFromCompetitor(scrapeResult.data, lead);
-    let searchResults = await searchForAirbnbListings(query);
+    const imageUrls = scrapeResult.data.imageUrls;
 
-    // If no results with site restriction, try broader search
-    if (searchResults.length === 0) {
-      searchResults = await broadSearchForAirbnb(query);
+    if (imageUrls.length > 0) {
+      // Step 2: Image-based matching (primary method)
+      const imageResult = await findAirbnbByImages(imageUrls, lead);
+
+      if (imageResult.found) {
+        const topCandidate = imageResult.candidates[0];
+        const isExact = topCandidate.score >= 90;
+
+        const updatedLead = leadStore.updateLead(lead.id, {
+          candidate_airbnb_urls: imageResult.candidates,
+          final_airbnb_url: imageResult.airbnbUrl,
+          confidence_score: topCandidate.score,
+          confidence_label: isExact ? 'High' : 'Medium',
+          reason: isExact
+            ? 'Exact image match found on Airbnb via reverse image search'
+            : 'Visual image match found on Airbnb — manual verification recommended',
+          analysis_notes: imageResult.notes,
+          method_used: 'image-based',
+          processing_status: isExact ? 'matched' : 'probable_match',
+        });
+
+        return updatedLead || lead;
+      }
+
+      // No Airbnb found via images
+      const updatedLead = leadStore.updateLead(lead.id, {
+        candidate_airbnb_urls: [],
+        final_airbnb_url: '',
+        confidence_score: 0,
+        confidence_label: 'None',
+        reason: `No Airbnb listing found via reverse image search (${imageResult.imagesSearched} images searched)`,
+        analysis_notes: imageResult.notes,
+        method_used: 'image-based',
+        processing_status: 'no_match',
+      });
+
+      return updatedLead || lead;
     }
 
-    // Step 3: Find and evaluate candidates
-    const candidates = await findCandidates(searchResults, lead);
-    const scoredCandidates = evaluateCandidates(lead, candidates);
-
-    // Step 4: Calculate confidence
-    const topCandidate = scoredCandidates.length > 0 ? scoredCandidates[0] : null;
-    const confidence = calculateConfidence(topCandidate, scoredCandidates);
-
-    // Determine processing status from confidence
-    const status = determineProcessingStatus(confidence.label);
-
-    const updatedLead = leadStore.updateLead(lead.id, {
-      candidate_airbnb_urls: scoredCandidates,
-      final_airbnb_url: topCandidate?.url || '',
-      confidence_score: confidence.score,
-      confidence_label: confidence.label,
-      reason: confidence.reason,
-      analysis_notes: confidence.analysisNotes,
-      method_used: method,
-      processing_status: status,
-    });
-
-    return updatedLead || lead;
-  } else {
-    // Competitor scraping failed -- fall back to address-based search
-    const competitorStatus = scrapeResult.error?.includes('blocked')
-      ? 'blocked' as const
-      : scrapeResult.error?.includes('unreachable')
-        ? 'unreachable' as const
-        : 'invalid' as const;
-
+    // No images extracted — fall back to address-based search
     leadStore.updateLead(lead.id, {
-      competitor_status: competitorStatus,
-      error_message: scrapeResult.error || 'Competitor scraping failed',
+      analysis_notes: 'No images found on competitor page, falling back to address search',
     });
-
-    method = 'competitor-fallback';
-
-    // Fall back to address-based search
-    return await processAddressSearch(lead, method);
+    return await processAddressSearch(lead, 'competitor-fallback');
   }
+
+  // Competitor scraping failed — fall back to address-based search
+  const competitorStatus = scrapeResult.error?.includes('blocked')
+    ? ('blocked' as const)
+    : scrapeResult.error?.includes('unreachable')
+      ? ('unreachable' as const)
+      : ('invalid' as const);
+
+  leadStore.updateLead(lead.id, {
+    competitor_status: competitorStatus,
+    error_message: scrapeResult.error || 'Competitor scraping failed',
+  });
+
+  return await processAddressSearch(lead, 'competitor-fallback');
 }
 
 /**
- * Process a Queue B lead (no competitor URL -- address-based search only).
+ * Process a Queue B lead (no competitor URL — address-based search only).
  */
 async function processQueueBLead(lead: Lead): Promise<Lead> {
   return await processAddressSearch(lead, 'address-based');
 }
 
 /**
- * Shared logic for searching by address.
+ * Shared logic for searching by address (fallback for Queue A, primary for Queue B).
  */
 async function processAddressSearch(
   lead: Lead,

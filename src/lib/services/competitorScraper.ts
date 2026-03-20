@@ -111,7 +111,9 @@ export async function scrapeCompetitorUrl(
     const data = await provider.scrape(url);
 
     // 3. Validate we got at least some useful data
+    // Images are critical for image-based matching (reverse image search)
     const hasUsefulData =
+      data.imageUrls.length > 0 ||
       data.title.length > 0 ||
       data.description.length > 0 ||
       data.addressHints.length > 0 ||
